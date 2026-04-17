@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>뽑기판</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+      background: #151515;
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+    }
+    .wrap {
+      width: 100%;
+      max-width: 760px;
+    }
+    .topbar {
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .title {
+      font-size: 28px;
+      font-weight: 800;
+    }
+    .btns {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    button {
+      border: none;
+      background: #333;
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    button:hover {
+      background: #444;
+    }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 4px;
+      background: #2f4f8a;
+      padding: 6px;
+      border-radius: 10px;
+      border: 2px solid #7693c6;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+    .cell {
+      aspect-ratio: 1 / 1;
+      border-radius: 0;
+      border: 1px solid #7e8fa8;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-weight: 800;
+      font-size: 16px;
+      user-select: none;
+      transition: 0.15s;
+      cursor: pointer;
+    }
+    .cell.closed {
+      background: #ef7a6b;
+      color: #8a1f1f;
+    }
+    .cell.closed:hover {
+      transform: scale(1.02);
+      filter: brightness(1.04);
+    }
+    .cell.safe {
+      background: #edf3fb;
+      color: #333;
+    }
+    .cell.win {
+      background: #9be38d;
+      color: #155315;
+    }
+    .cell.admin-mark {
+      box-shadow: inset 0 0 0 3px #ffe066;
+    }
+    .panel {
+      margin-top: 16px;
+      padding: 14px;
+      background: #232323;
+      border-radius: 12px;
+      display: none;
+    }
+    .panel.show { display: block; }
+    .notice {
+      margin-top: 10px;
+      font-size: 14px;
+      color: #d2d2d2;
+      line-height: 1.6;
+    }
+    .password-box {
+      display: none;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .password-box.show { display: flex; }
+    input[type="password"] {
+      flex: 1;
+      min-width: 180px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: none;
+      outline: none;
+      font-size: 15px;
+    }
+    .small {
+      font-size: 13px;
+      color: #aaa;
+      margin-top: 8px;
+    }
+    .status {
+      margin-top: 8px;
+      font-size: 14px;
+      color: #ffd77a;
+      font-weight: 700;
+      word-break: break-all;
+    }
+    @media (max-width: 600px) {
+      .title { font-size: 22px; }
+      .cell { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="title">팡 뽑기판</div>
+      <div class="btns">
+        <button id="resetPlayerBtn">참가자 초기화</button>
+        <button id="adminOpenBtn">관리자 모드</button>
+      </div>
+    </div>
+
+    <div class="board" id="board"></div>
+
+    <div class="password-box" id="passwordBox">
+      <input type="password" id="adminPassword" placeholder="관리자 비밀번호 입력" />
+      <button id="loginBtn">확인</button>
+    </div>
+
+    <div class="panel" id="adminPanel">
+      <div><b>관리자 모드 활성화</b></div>
+      <div class="notice">
+        - 관리자만 당첨 칸 확인 가능<br />
+        - 칸을 누르면 당첨/꽝 설정 가능<br />
+        - 노란 테두리 = 당첨 칸
+      </div>
+      <div class="btns" style="margin-top:12px;">
+        <button id="saveBtn">당첨 저장</button>
+        <button id="clearWinnersBtn">당첨 전체 해제</button>
+        <button id="logoutBtn">관리자 종료</button>
+      </div>
+      <div class="small">비밀번호 기본값: <b>1234</b> / 코드에서 수정 가능</div>
+      <div class="status" id="adminStatus"></div>
+    </div>
+  </div>
+
+  <script>
+    const TOTAL_CELLS = 100;
+    const ADMIN_PASSWORD = "1234";
+    const WINNERS_KEY = "lottery_winners_v1";
+    const OPENED_KEY = "lottery_opened_v1";
+
+    const board = document.getElementById("board");
+    const adminPanel = document.getElementById("adminPanel");
+    const passwordBox = document.getElementById("passwordBox");
+    const adminPasswordInput = document.getElementById("adminPassword");
+    const adminStatus = document.getElementById("adminStatus");
+
+    let isAdmin = false;
+    let winners = loadArray(WINNERS_KEY);
+    let opened = loadArray(OPENED_KEY);
+
+    function loadArray(key) {
+      try {
+        const data = JSON.parse(localStorage.getItem(key));
+        return Array.isArray(data) ? data : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveArray(key, arr) {
+      localStorage.setItem(key, JSON.stringify(arr));
+    }
+
+    function isWinner(num) {
+      return winners.includes(num);
+    }
+
+    function isOpened(num) {
+      return opened.includes(num);
+    }
+
+    function toggleWinner(num) {
+      if (isWinner(num)) {
+        winners = winners.filter(v => v !== num);
+      } else {
+        winners.push(num);
+      }
+    }
+
+    function openCell(num) {
+      if (isOpened(num)) return;
+      opened.push(num);
+      saveArray(OPENED_KEY, opened);
+    }
+
+    function renderBoard() {
+      board.innerHTML = "";
+
+      for (let i = 1; i <= TOTAL_CELLS; i++) {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+
+        if (isOpened(i)) {
+          if (isWinner(i)) {
+            cell.classList.add("win");
+            cell.textContent = "당첨";
+          } else {
+            cell.classList.add("safe");
+            cell.textContent = i;
+          }
+        } else {
+          cell.classList.add("closed");
+          cell.textContent = i <= 9 ? "팡" : i;
+        }
+
+        if (isAdmin && isWinner(i) && !isOpened(i)) {
+          cell.classList.add("admin-mark");
+        }
+
+        cell.addEventListener("click", () => {
+          if (isAdmin) {
+            toggleWinner(i);
+            renderBoard();
+            adminStatus.textContent = `현재 당첨 칸: ${winners.sort((a, b) => a - b).join(", ") || "없음"}`;
+          } else {
+            openCell(i);
+            renderBoard();
+          }
+        });
+
+        board.appendChild(cell);
+      }
+    }
+
+    document.getElementById("adminOpenBtn").addEventListener("click", () => {
+      if (isAdmin) {
+        adminPanel.classList.toggle("show");
+      } else {
+        passwordBox.classList.toggle("show");
+        adminPasswordInput.focus();
+      }
+    });
+
+    document.getElementById("loginBtn").addEventListener("click", () => {
+      const pw = adminPasswordInput.value.trim();
+      if (pw === ADMIN_PASSWORD) {
+        isAdmin = true;
+        passwordBox.classList.remove("show");
+        adminPanel.classList.add("show");
+        adminPasswordInput.value = "";
+        adminStatus.textContent = `현재 당첨 칸: ${winners.sort((a, b) => a - b).join(", ") || "없음"}`;
+        renderBoard();
+      } else {
+        alert("비밀번호가 틀렸습니다.");
+      }
+    });
+
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+      isAdmin = false;
+      adminPanel.classList.remove("show");
+      adminStatus.textContent = "";
+      renderBoard();
+    });
+
+    document.getElementById("saveBtn").addEventListener("click", () => {
+      saveArray(WINNERS_KEY, winners);
+      adminStatus.textContent = `저장 완료 / 당첨 칸: ${winners.sort((a, b) => a - b).join(", ") || "없음"}`;
+      renderBoard();
+    });
+
+    document.getElementById("clearWinnersBtn").addEventListener("click", () => {
+      if (!confirm("당첨 칸을 전부 해제할까요?")) return;
+      winners = [];
+      saveArray(WINNERS_KEY, winners);
+      adminStatus.textContent = "당첨 칸 전체 해제 완료";
+      renderBoard();
+    });
+
+    document.getElementById("resetPlayerBtn").addEventListener("click", () => {
+      if (!confirm("참가자 공개 상태를 초기화할까요?")) return;
+      opened = [];
+      saveArray(OPENED_KEY, opened);
+      renderBoard();
+    });
+
+    adminPasswordInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        document.getElementById("loginBtn").click();
+      }
+    });
+
+    renderBoard();
+  </script>
+</body>
+</html>

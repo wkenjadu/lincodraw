@@ -6,6 +6,7 @@
   <title>린코레일 뽑기판</title>
   <style>
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -15,10 +16,12 @@
       justify-content: center;
       padding: 20px;
     }
+
     .wrap {
       width: 100%;
       max-width: 760px;
     }
+
     .topbar {
       display: flex;
       gap: 10px;
@@ -27,15 +30,18 @@
       margin-bottom: 16px;
       flex-wrap: wrap;
     }
+
     .title {
       font-size: 28px;
       font-weight: 800;
     }
+
     .btns {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
     }
+
     button {
       border: none;
       background: #333;
@@ -45,7 +51,10 @@
       cursor: pointer;
       font-weight: 700;
     }
-    button:hover { background: #444; }
+
+    button:hover {
+      background: #444;
+    }
 
     .board {
       display: grid;
@@ -59,33 +68,41 @@
 
     .cell {
       aspect-ratio: 1 / 1;
-      border: 1px solid #ccc;
+      border: 1px solid #bfc7d3;
       display: flex;
       justify-content: center;
       align-items: center;
       font-weight: 800;
       font-size: 16px;
       cursor: pointer;
+      user-select: none;
+      transition: transform 0.12s ease, filter 0.12s ease;
     }
 
-    /* 기본 (선택 전) = 흰색 */
+    .cell:hover {
+      transform: scale(1.02);
+      filter: brightness(1.02);
+    }
+
+    /* 기본 = 흰색 */
     .cell.closed {
       background: #ffffff;
-      color: #000;
+      color: #000000;
     }
 
     /* 꽝 = 빨간색 */
-    .cell.safe {
+    .cell.lose {
       background: #ff4d4d;
-      color: #fff;
+      color: #ffffff;
     }
 
     /* 당첨 = 초록색 */
     .cell.win {
       background: #4caf50;
-      color: #fff;
+      color: #ffffff;
     }
 
+    /* 관리자만 보는 당첨 표시 */
     .cell.admin-mark {
       box-shadow: inset 0 0 0 3px yellow;
     }
@@ -97,173 +114,290 @@
       border-radius: 12px;
       display: none;
     }
-    .panel.show { display: block; }
+
+    .panel.show {
+      display: block;
+    }
 
     .password-box {
       display: none;
       gap: 8px;
       margin-top: 12px;
+      flex-wrap: wrap;
     }
-    .password-box.show { display: flex; }
 
-    input {
+    .password-box.show {
+      display: flex;
+    }
+
+    input[type="password"],
+    input[type="number"] {
       padding: 10px;
       border-radius: 10px;
       border: none;
+      outline: none;
+      min-width: 120px;
     }
 
     .status {
-      margin-top: 8px;
+      margin-top: 10px;
       color: #ffd77a;
       font-weight: bold;
+      line-height: 1.6;
+      word-break: break-all;
+    }
+
+    .admin-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    .small {
+      color: #ccc;
+      font-size: 13px;
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 600px) {
+      .title { font-size: 22px; }
+      .cell { font-size: 14px; }
     }
   </style>
 </head>
 <body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="title">린코레일 뽑기판</div>
+      <div class="btns">
+        <button id="resetPlayerBtn">참가자 초기화</button>
+        <button id="adminOpenBtn">관리자</button>
+      </div>
+    </div>
 
-<div class="wrap">
+    <div class="board" id="board"></div>
 
-  <div class="topbar">
-    <div class="title">린코레일 뽑기판</div>
-    <div class="btns">
-      <button id="resetPlayerBtn">초기화</button>
-      <button id="adminOpenBtn">관리자</button>
+    <div class="password-box" id="passwordBox">
+      <input type="password" id="adminPassword" placeholder="비밀번호 입력" />
+      <button id="loginBtn">확인</button>
+    </div>
+
+    <div class="panel" id="adminPanel">
+      <div><b>관리자 모드</b></div>
+
+      <div class="admin-row">
+        <label for="winnerCount">당첨 개수</label>
+        <input type="number" id="winnerCount" min="1" max="100" value="1" />
+        <button id="randomizeBtn">당첨 랜덤 섞기</button>
+      </div>
+
+      <div class="admin-row">
+        <button id="saveBtn">저장</button>
+        <button id="clearWinnersBtn">당첨 초기화</button>
+        <button id="logoutBtn">닫기</button>
+      </div>
+
+      <div class="small">
+        비밀번호 기본값: <b>1234</b><br>
+        관리자 모드에서 칸 눌러 직접 당첨 지정도 가능
+      </div>
+
+      <div class="status" id="adminStatus"></div>
     </div>
   </div>
 
-  <div class="board" id="board"></div>
+  <script>
+    const TOTAL = 100;
+    const ADMIN_PASSWORD = "1234";
+    const STORAGE_WINNERS = "winners";
+    const STORAGE_OPENED = "opened";
 
-  <div class="password-box" id="passwordBox">
-    <input type="password" id="adminPassword" placeholder="비밀번호" />
-    <button id="loginBtn">확인</button>
-  </div>
+    let winners = JSON.parse(localStorage.getItem(STORAGE_WINNERS) || "[]");
+    let opened = JSON.parse(localStorage.getItem(STORAGE_OPENED) || "[]");
+    let isAdmin = false;
 
-  <div class="panel" id="adminPanel">
-    <div>관리자 모드</div>
-    <button id="saveBtn">저장</button>
-    <button id="clearWinnersBtn">당첨 초기화</button>
-    <button id="logoutBtn">닫기</button>
-    <div class="status" id="adminStatus"></div>
-  </div>
+    const board = document.getElementById("board");
+    const adminPanel = document.getElementById("adminPanel");
+    const passwordBox = document.getElementById("passwordBox");
+    const status = document.getElementById("adminStatus");
+    const winnerCountInput = document.getElementById("winnerCount");
 
-</div>
+    function saveWinners() {
+      localStorage.setItem(STORAGE_WINNERS, JSON.stringify(winners));
+    }
 
-<script>
-const TOTAL = 100;
-const ADMIN_PASSWORD = "1234";
+    function saveOpened() {
+      localStorage.setItem(STORAGE_OPENED, JSON.stringify(opened));
+    }
 
-let winners = JSON.parse(localStorage.getItem("winners") || "[]");
-let opened = JSON.parse(localStorage.getItem("opened") || "[]");
-let isAdmin = false;
+    function playWinSound() {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      let start = audioContext.currentTime;
 
-const board = document.getElementById("board");
-const adminPanel = document.getElementById("adminPanel");
-const passwordBox = document.getElementById("passwordBox");
-const status = document.getElementById("adminStatus");
+      notes.forEach((freq, index) => {
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
 
-function render() {
-  board.innerHTML = "";
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, start + index * 0.08);
 
-  for (let i = 1; i <= TOTAL; i++) {
-    const div = document.createElement("div");
-    div.className = "cell";
+        gain.gain.setValueAtTime(0.0001, start + index * 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.15, start + index * 0.08 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + index * 0.08 + 0.12);
 
-    if (opened.includes(i)) {
-      if (winners.includes(i)) {
-        div.classList.add("win");
-        div.innerText = "당첨";
-      } else {
-        div.classList.add("safe");
-        div.innerText = "꽝";
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+
+        osc.start(start + index * 0.08);
+        osc.stop(start + index * 0.08 + 0.13);
+      });
+    }
+
+    function updateStatus() {
+      const sorted = [...winners].sort((a, b) => a - b);
+      status.innerText =
+        "당첨 개수: " + winners.length + "\n" +
+        "당첨 번호: " + (sorted.length ? sorted.join(", ") : "없음");
+    }
+
+    function getRandomUniqueNumbers(count, max) {
+      const arr = [];
+      for (let i = 1; i <= max; i++) {
+        arr.push(i);
       }
-    } else {
-      div.classList.add("closed");
-      div.innerText = i;
+
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+
+      return arr.slice(0, count).sort((a, b) => a - b);
     }
 
-    if (isAdmin && winners.includes(i) && !opened.includes(i)) {
-      div.classList.add("admin-mark");
-    }
+    function render() {
+      board.innerHTML = "";
 
-    div.onclick = () => {
-      if (isAdmin) {
-        if (winners.includes(i)) {
-          winners = winners.filter(v => v !== i);
+      for (let i = 1; i <= TOTAL; i++) {
+        const div = document.createElement("div");
+        div.className = "cell";
+
+        if (opened.includes(i)) {
+          if (winners.includes(i)) {
+            div.classList.add("win");
+            div.innerText = "당첨";
+          } else {
+            div.classList.add("lose");
+            div.innerText = "꽝";
+          }
         } else {
-          winners.push(i);
+          div.classList.add("closed");
+          div.innerText = i;
         }
-        updateStatus();
-        render();
+
+        if (isAdmin && winners.includes(i) && !opened.includes(i)) {
+          div.classList.add("admin-mark");
+        }
+
+        div.onclick = () => {
+          if (isAdmin) {
+            if (winners.includes(i)) {
+              winners = winners.filter(v => v !== i);
+            } else {
+              winners.push(i);
+            }
+            updateStatus();
+            render();
+          } else {
+            if (opened.includes(i)) return;
+
+            opened.push(i);
+            saveOpened();
+
+            if (winners.includes(i)) {
+              playWinSound();
+            }
+
+            render();
+          }
+        };
+
+        board.appendChild(div);
+      }
+    }
+
+    document.getElementById("adminOpenBtn").onclick = () => {
+      if (isAdmin) {
+        adminPanel.classList.toggle("show");
       } else {
-        if (!opened.includes(i)) {
-          opened.push(i);
-          localStorage.setItem("opened", JSON.stringify(opened));
-          render();
-        }
+        passwordBox.classList.toggle("show");
       }
     };
 
-    board.appendChild(div);
-  }
-}
+    document.getElementById("loginBtn").onclick = () => {
+      const pw = document.getElementById("adminPassword").value.trim();
 
-function updateStatus() {
-  status.innerText = "당첨: " + (winners.length ? winners.join(", ") : "없음");
-}
+      if (pw === ADMIN_PASSWORD) {
+        isAdmin = true;
+        passwordBox.classList.remove("show");
+        adminPanel.classList.add("show");
+        document.getElementById("adminPassword").value = "";
+        winnerCountInput.value = winners.length || 1;
+        updateStatus();
+        render();
+      } else {
+        alert("비밀번호 틀림");
+      }
+    };
 
-// 관리자 로그인
+    document.getElementById("saveBtn").onclick = () => {
+      saveWinners();
+      updateStatus();
+      alert("저장 완료");
+    };
 
-document.getElementById("adminOpenBtn").onclick = () => {
-  passwordBox.classList.toggle("show");
-};
+    document.getElementById("clearWinnersBtn").onclick = () => {
+      winners = [];
+      saveWinners();
+      winnerCountInput.value = 1;
+      updateStatus();
+      render();
+    };
 
-document.getElementById("loginBtn").onclick = () => {
-  const pw = document.getElementById("adminPassword").value;
-  if (pw === ADMIN_PASSWORD) {
-    isAdmin = true;
-    passwordBox.classList.remove("show");
-    adminPanel.classList.add("show");
-    updateStatus();
+    document.getElementById("logoutBtn").onclick = () => {
+      isAdmin = false;
+      adminPanel.classList.remove("show");
+      render();
+    };
+
+    document.getElementById("resetPlayerBtn").onclick = () => {
+      opened = [];
+      saveOpened();
+      render();
+    };
+
+    document.getElementById("randomizeBtn").onclick = () => {
+      let count = parseInt(winnerCountInput.value, 10);
+
+      if (isNaN(count) || count < 1) count = 1;
+      if (count > TOTAL) count = TOTAL;
+
+      winnerCountInput.value = count;
+      winners = getRandomUniqueNumbers(count, TOTAL);
+      updateStatus();
+      render();
+    };
+
+    document.getElementById("adminPassword").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        document.getElementById("loginBtn").click();
+      }
+    });
+
     render();
-  } else {
-    alert("비밀번호 틀림");
-  }
-};
-
-// 저장
-
-document.getElementById("saveBtn").onclick = () => {
-  localStorage.setItem("winners", JSON.stringify(winners));
-  updateStatus();
-};
-
-// 초기화
-
-document.getElementById("clearWinnersBtn").onclick = () => {
-  winners = [];
-  localStorage.setItem("winners", JSON.stringify(winners));
-  updateStatus();
-  render();
-};
-
-// 로그아웃
-
-document.getElementById("logoutBtn").onclick = () => {
-  isAdmin = false;
-  adminPanel.classList.remove("show");
-  render();
-};
-
-// 전체 초기화
-
-document.getElementById("resetPlayerBtn").onclick = () => {
-  opened = [];
-  localStorage.setItem("opened", JSON.stringify(opened));
-  render();
-};
-
-render();
-</script>
-
+  </script>
 </body>
 </html>

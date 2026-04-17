@@ -84,7 +84,7 @@
       filter: brightness(1.02);
     }
 
-    /* 기본 = 흰색 */
+    /* 일반 = 흰색 */
     .cell.closed {
       background: #ffffff;
       color: #000000;
@@ -100,9 +100,10 @@
     .cell.win {
       background: #4caf50;
       color: #ffffff;
+      animation: pop 0.25s ease;
     }
 
-    /* 관리자만 보는 당첨 표시 */
+    /* 관리자만 당첨 위치 확인 가능 */
     .cell.admin-mark {
       box-shadow: inset 0 0 0 3px yellow;
     }
@@ -145,6 +146,7 @@
       font-weight: bold;
       line-height: 1.6;
       word-break: break-all;
+      white-space: pre-line;
     }
 
     .admin-row {
@@ -160,6 +162,17 @@
       font-size: 13px;
       margin-top: 8px;
       line-height: 1.5;
+    }
+
+    .save-info {
+      margin-top: 10px;
+      color: #9ad0ff;
+      font-size: 13px;
+    }
+
+    @keyframes pop {
+      0% { transform: scale(0.9); }
+      100% { transform: scale(1); }
     }
 
     @media (max-width: 600px) {
@@ -196,47 +209,106 @@
 
       <div class="admin-row">
         <button id="saveBtn">저장</button>
+        <button id="loadBtn">불러오기</button>
         <button id="clearWinnersBtn">당첨 초기화</button>
+        <button id="clearAllBtn">전체 데이터 삭제</button>
         <button id="logoutBtn">닫기</button>
       </div>
 
       <div class="small">
         비밀번호 기본값: <b>1234</b><br>
-        관리자 모드에서 칸 눌러 직접 당첨 지정도 가능
+        관리자 모드에서 칸 눌러 직접 당첨 지정 가능<br>
+        저장 누르면 현재 당첨칸 / 참가자 공개상태 / 당첨개수가 같이 저장됨
       </div>
 
       <div class="status" id="adminStatus"></div>
+      <div class="save-info" id="saveInfo"></div>
     </div>
   </div>
 
   <script>
     const TOTAL = 100;
     const ADMIN_PASSWORD = "1234";
-    const STORAGE_WINNERS = "winners";
-    const STORAGE_OPENED = "opened";
+    const STORAGE_KEY = "lottery_game_data_v2";
 
-    let winners = JSON.parse(localStorage.getItem(STORAGE_WINNERS) || "[]");
-    let opened = JSON.parse(localStorage.getItem(STORAGE_OPENED) || "[]");
+    let winners = [];
+    let opened = [];
+    let savedWinnerCount = 1;
     let isAdmin = false;
 
     const board = document.getElementById("board");
     const adminPanel = document.getElementById("adminPanel");
     const passwordBox = document.getElementById("passwordBox");
     const status = document.getElementById("adminStatus");
+    const saveInfo = document.getElementById("saveInfo");
     const winnerCountInput = document.getElementById("winnerCount");
 
-    function saveWinners() {
-      localStorage.setItem(STORAGE_WINNERS, JSON.stringify(winners));
+    function getNowText() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      const h = String(now.getHours()).padStart(2, "0");
+      const min = String(now.getMinutes()).padStart(2, "0");
+      const s = String(now.getSeconds()).padStart(2, "0");
+      return `${y}-${m}-${d} ${h}:${min}:${s}`;
     }
 
-    function saveOpened() {
-      localStorage.setItem(STORAGE_OPENED, JSON.stringify(opened));
+    function saveGame(showAlert = false) {
+      const data = {
+        winners,
+        opened,
+        winnerCount: parseInt(winnerCountInput.value, 10) || winners.length || 1,
+        savedAt: getNowText()
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      saveInfo.innerText = `저장됨: ${data.savedAt}`;
+      if (showAlert) alert("저장 완료");
+    }
+
+    function loadGame(showAlert = false) {
+      const raw = localStorage.getItem(STORAGE_KEY);
+
+      if (!raw) {
+        saveInfo.innerText = "저장 데이터 없음";
+        if (showAlert) alert("저장된 데이터가 없음");
+        return;
+      }
+
+      try {
+        const data = JSON.parse(raw);
+        winners = Array.isArray(data.winners) ? data.winners : [];
+        opened = Array.isArray(data.opened) ? data.opened : [];
+        savedWinnerCount = Number.isInteger(data.winnerCount) ? data.winnerCount : (winners.length || 1);
+
+        winnerCountInput.value = savedWinnerCount;
+        saveInfo.innerText = data.savedAt ? `저장됨: ${data.savedAt}` : "저장 데이터 불러옴";
+
+        updateStatus();
+        render();
+
+        if (showAlert) alert("불러오기 완료");
+      } catch (e) {
+        saveInfo.innerText = "저장 데이터 오류";
+        if (showAlert) alert("저장 데이터가 손상됨");
+      }
+    }
+
+    function clearAllData() {
+      localStorage.removeItem(STORAGE_KEY);
+      winners = [];
+      opened = [];
+      savedWinnerCount = 1;
+      winnerCountInput.value = 1;
+      saveInfo.innerText = "저장 데이터 없음";
+      updateStatus();
+      render();
     }
 
     function playWinSound() {
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const notes = [523.25, 659.25, 783.99, 1046.5];
-      let start = audioContext.currentTime;
+      const start = audioContext.currentTime;
 
       notes.forEach((freq, index) => {
         const osc = audioContext.createOscillator();
@@ -261,7 +333,8 @@
       const sorted = [...winners].sort((a, b) => a - b);
       status.innerText =
         "당첨 개수: " + winners.length + "\n" +
-        "당첨 번호: " + (sorted.length ? sorted.join(", ") : "없음");
+        "당첨 번호: " + (sorted.length ? sorted.join(", ") : "없음") + "\n" +
+        "열린 칸 수: " + opened.length;
     }
 
     function getRandomUniqueNumbers(count, max) {
@@ -309,19 +382,23 @@
             } else {
               winners.push(i);
             }
+
+            winnerCountInput.value = winners.length || 1;
             updateStatus();
             render();
+            saveGame(false);
           } else {
             if (opened.includes(i)) return;
 
             opened.push(i);
-            saveOpened();
 
             if (winners.includes(i)) {
               playWinSound();
             }
 
+            updateStatus();
             render();
+            saveGame(false);
           }
         };
 
@@ -345,7 +422,7 @@
         passwordBox.classList.remove("show");
         adminPanel.classList.add("show");
         document.getElementById("adminPassword").value = "";
-        winnerCountInput.value = winners.length || 1;
+        winnerCountInput.value = winners.length || savedWinnerCount || 1;
         updateStatus();
         render();
       } else {
@@ -354,17 +431,26 @@
     };
 
     document.getElementById("saveBtn").onclick = () => {
-      saveWinners();
+      saveGame(true);
       updateStatus();
-      alert("저장 완료");
+    };
+
+    document.getElementById("loadBtn").onclick = () => {
+      loadGame(true);
     };
 
     document.getElementById("clearWinnersBtn").onclick = () => {
       winners = [];
-      saveWinners();
       winnerCountInput.value = 1;
       updateStatus();
       render();
+      saveGame(false);
+    };
+
+    document.getElementById("clearAllBtn").onclick = () => {
+      const ok = confirm("저장된 데이터와 현재 진행상태를 전부 삭제할까요?");
+      if (!ok) return;
+      clearAllData();
     };
 
     document.getElementById("logoutBtn").onclick = () => {
@@ -375,8 +461,9 @@
 
     document.getElementById("resetPlayerBtn").onclick = () => {
       opened = [];
-      saveOpened();
+      updateStatus();
       render();
+      saveGame(false);
     };
 
     document.getElementById("randomizeBtn").onclick = () => {
@@ -389,6 +476,7 @@
       winners = getRandomUniqueNumbers(count, TOTAL);
       updateStatus();
       render();
+      saveGame(false);
     };
 
     document.getElementById("adminPassword").addEventListener("keydown", (e) => {
@@ -397,6 +485,8 @@
       }
     });
 
+    loadGame(false);
+    updateStatus();
     render();
   </script>
 </body>
